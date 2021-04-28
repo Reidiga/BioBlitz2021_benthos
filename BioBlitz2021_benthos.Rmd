@@ -1,0 +1,113 @@
+---
+title: "BioBlitz 2021 - Benthos"
+author: "Rei Diga"
+date: "4/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Packgaes
+```{r include=FALSE}
+#clear environment 
+rm(list=ls())
+
+#install.packages('pacman')
+#install.packages("googlesheets4")
+#install.packages("rareNMtests")
+#install.packages("betapart")
+#install.packages("Reshape2)
+#install.packages("RColorBrewer")
+library(rareNMtests)
+library(googlesheets4)
+library(betapart)
+library(reshape2)
+library(RColorBrewer)
+
+library(pacman)
+p_load(dplyr, tidyr, vegan, reshape2, ggplot2, tidyverse, data.table)
+```
+
+# Import raw data and metadata from googlesheets
+```{r}
+gs4_api_key()
+gs4_deauth()
+benthos_data_raw <- read_sheet("https://docs.google.com/spreadsheets/d/16Qilhb6rM68qMkmK8Q9BXM7HCo9ZwE82AMTPl03N-8Q/edit?usp=sharing", range = "Data")
+
+benthos_meta_raw <- read_sheet("https://docs.google.com/spreadsheets/d/16Qilhb6rM68qMkmK8Q9BXM7HCo9ZwE82AMTPl03N-8Q/edit?usp=sharing", range = "Metadata")
+
+benthos_codes_raw <- read_sheet("https://docs.google.com/spreadsheets/d/16Qilhb6rM68qMkmK8Q9BXM7HCo9ZwE82AMTPl03N-8Q/edit?usp=sharing", range = "Codes")
+```
+
+# Data wrangling
+```{r}
+benthos_codes <- benthos_codes_raw %>% 
+  select(Code, Taxa, Group) %>% 
+  relocate(Taxa, .before = Code)
+
+benthos_meta <- benthos_meta_raw %>% 
+  select(Season, Site, MPA, Depth_category, `Transect (a/b/c)`, Transect_code, `Transect length (m)`) %>% 
+  relocate(Transect_code, .before = "Season")
+
+benthos_data <- benthos_data_raw %>% 
+  drop_na("Transect_code") %>% 
+  select(Transect_code, Taxa) %>% 
+  group_by(Transect_code, Taxa) %>% 
+  dplyr::summarise(n()) %>% 
+  left_join(benthos_codes) %>% 
+  select(-c(Taxa, Group)) %>% 
+  rename(Taxa = "Code") %>% 
+  relocate(`n()`, .after = Taxa)
+
+benthos_wide <- benthos_data %>% 
+  spread(Taxa, `n()`, fill = 0) %>% 
+  left_join(benthos_meta) %>% 
+  relocate(c(Season, Site, MPA, Depth_category, `Transect (a/b/c)`, `Transect length (m)`), .before = Transect_code) %>% 
+  mutate(Points.per.transect = `Transect length (m)`*10) %>% 
+  relocate(Points.per.transect, .after = `Transect length (m)`)
+
+wide_meta <- benthos_wide[,1:8]
+wide_matrix <- benthos_wide[,9:length(benthos_wide)]
+
+p.cover <- round((wide_matrix / wide_meta$Points.per.transect), digits = 3)
+p.cover <- cbind(wide_meta, p.cover)
+
+p.cover_long <- p.cover %>% 
+  reshape2::melt(id.vars = names(wide_meta)) %>% 
+  rename(Code = variable, P.cover = value) %>% 
+  left_join(benthos_codes) %>% 
+  select(-Taxa) %>% rename(Taxa = Code)
+
+invert_long <- filter(p.cover_long, Group == "Invertebrates")  
+```
+
+```{r}
+
+# Define the number of colors (Taxons) for the stacked plot
+nb.cols <- 14
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+
+# Stacked bars
+(p.cover_stack <- ggplot(data = p.cover_long,
+                         aes(x = MPA, y = P.cover, fill = Group)) + 
+  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
+  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
+  facet_grid(~Site) +
+  scale_fill_manual(values = mycolors)) +
+  theme(strip.background = element_rect(fill="grey"), 
+        strip.text.x     = element_text(size = 14, color = "black"),
+        strip.text.y     = element_text(size=14, color = "black"),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
+        axis.text.y      = element_text(color = "black", size = 14),
+        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "right",
+        axis.line = element_line(color = "black"))
+
+```
+
