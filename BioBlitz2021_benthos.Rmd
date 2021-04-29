@@ -80,18 +80,44 @@ p.cover_long <- p.cover %>%
   left_join(benthos_codes) %>% 
   select(-Taxa) %>% rename(Taxa = Code)
 
-invert_long <- filter(p.cover_long, Group == "Invertebrates")  
+p.cover_stat <- p.cover_long %>% 
+  group_by(Season, Site, MPA, Depth_category, Group, Taxa) %>% 
+  dplyr::summarise_at(vars(P.cover), funs(mean, median, sd, n()))
+
+invert_stat <- filter(p.cover_stat, Group == "Invertebrates")
+algae_stat <- filter(p.cover_stat, Group == "Algae")
 ```
 
 ```{r}
 
 # Define the number of colors (Taxons) for the stacked plot
-nb.cols <- 14
+nb.cols <- 12
 mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
 
 # Stacked bars
-(p.cover_stack <- ggplot(data = p.cover_long,
-                         aes(x = MPA, y = P.cover, fill = Group)) + 
+(p.cover_stack <- ggplot(data = p.cover_stat,
+                         aes(x = MPA, y = mean*100, fill = Group)) + 
+  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
+  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
+  facet_grid(~Site) +
+  scale_fill_manual(values = c("#1D800E", "#0605E7", "#b58e62"))) +
+  theme(strip.background = element_rect(fill="grey"), 
+        strip.text.x     = element_text(size = 14, color = "black"),
+        strip.text.y     = element_text(size=14, color = "black"),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
+        axis.text.y      = element_text(color = "black", size = 14),
+        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "right",
+        axis.line = element_line(color = "black"))
+
+
+# Invertebrates stacked bars
+(algae_stack <- ggplot(data = invert_stat,
+                         aes(x = MPA, y = mean*100, fill = Taxa)) + 
   geom_bar(position = "stack", stat = "identity", width = 0.7)  +
   labs(x = NULL, y = "Relative cover of species", fill = NULL) +
   facet_grid(~Site) +
@@ -109,5 +135,24 @@ mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
         legend.position = "right",
         axis.line = element_line(color = "black"))
 
+# Algae stacked bars
+(algae_stack <- ggplot(data = algae_stat,
+                         aes(x = MPA, y = mean*100, fill = Taxa)) + 
+  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
+  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
+  facet_grid(~Site) +
+  scale_fill_manual(values = c("#B8128C", "#FF7F00", "#228B22")) +
+  theme(strip.background = element_rect(fill="grey"), 
+        strip.text.x     = element_text(size = 14, color = "black"),
+        strip.text.y     = element_text(size=14, color = "black"),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
+        axis.text.y      = element_text(color = "black", size = 14),
+        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "right",
+        axis.line = element_line(color = "black")))
 ```
 
