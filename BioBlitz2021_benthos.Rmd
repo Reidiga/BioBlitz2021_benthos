@@ -40,8 +40,8 @@ benthos_meta_raw <- read_sheet("https://docs.google.com/spreadsheets/d/16Qilhb6r
 
 benthos_codes_raw <- read_sheet("https://docs.google.com/spreadsheets/d/16Qilhb6rM68qMkmK8Q9BXM7HCo9ZwE82AMTPl03N-8Q/edit?usp=sharing", range = "Codes")
 ```
-
-# Data wrangling
+# Percent cover
+## Data wrangling
 ```{r}
 benthos_codes <- benthos_codes_raw %>% 
   select(Code, Taxa, Group) %>% 
@@ -52,7 +52,211 @@ benthos_meta <- benthos_meta_raw %>%
   relocate(Transect_code, .before = "Season")
 
 benthos_data <- benthos_data_raw %>% 
-  drop_na("Transect_code") %>% 
+  drop_na("Transect_code" | "Taxa") %>% 
+  select(Transect_code, Taxa) %>% 
+  group_by(Transect_code, Taxa) %>% 
+  dplyr::summarise(n()) %>% 
+  left_join(benthos_codes) %>% 
+  select(-c(Taxa, Group)) %>% 
+  dplyr::rename(Taxa = "Code") %>% 
+  relocate(`n()`, .after = Taxa)
+
+benthos_wide <- benthos_data %>% 
+  spread(Taxa, `n()`, fill = 0) %>% 
+  left_join(benthos_meta) %>% 
+  relocate(c(Season, Site, MPA, Depth_category, `Transect (a/b/c)`, `Transect length (m)`), .before = Transect_code) %>% 
+  mutate(Points.per.transect = `Transect length (m)`*10) %>% 
+  relocate(Points.per.transect, .after = `Transect length (m)`)
+
+wide_meta <- benthos_wide[,1:8]
+wide_matrix <- benthos_wide[,9:length(benthos_wide)]
+
+p.cover <- round((wide_matrix / wide_meta$Points.per.transect), digits = 3)
+p.cover <- cbind(wide_meta, p.cover)
+
+p.cover_long <- p.cover %>% 
+  reshape2::melt(id.vars = names(wide_meta)) %>% 
+  dplyr::rename(Code = variable, P.cover = value) %>% 
+  left_join(benthos_codes) %>% 
+  select(-Taxa) %>% dplyr::rename(Taxa = Code)
+
+p.cover_stat <- p.cover_long %>% 
+  group_by(Season, Site, MPA, Depth_category, Group, Taxa) %>% 
+  dplyr::summarise_at(vars(P.cover), funs(mean, median, sd, n()))
+
+invert_stat <- filter(p.cover_stat, Group == "Invertebrates")
+algae_stat <- filter(p.cover_stat, Group == "Algae")
+```
+## Stacked bars
+```{r}
+
+# Define the number of colors (Taxons) for the stacked plot
+nb.cols <- 12
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+
+# Stacked bars
+(p.cover_stack <- ggplot(data = p.cover_stat,
+                         aes(x = MPA, y = mean*100, fill = Group)) + 
+  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
+  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
+  facet_grid(Site ~ Depth_category) +
+  scale_fill_manual(values = c("#1D800E", "#0605E7", "#b58e62","666666"))) +
+  theme(strip.background = element_rect(fill="grey"), 
+        strip.text.x     = element_text(size = 14, color = "black"),
+        strip.text.y     = element_text(size=14, color = "black"),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
+        axis.text.y      = element_text(color = "black", size = 14),
+        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "right",
+        axis.line = element_line(color = "black"))
+
+
+# Invertebrates stacked bars
+(algae_stack <- ggplot(data = invert_stat,
+                         aes(x = MPA, y = mean*100, fill = Taxa)) + 
+  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
+  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
+  facet_grid(Site ~ Depth_category) +
+  scale_fill_manual(values = mycolors)) +
+  theme(strip.background = element_rect(fill="grey"), 
+        strip.text.x     = element_text(size = 14, color = "black"),
+        strip.text.y     = element_text(size=14, color = "black"),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
+        axis.text.y      = element_text(color = "black", size = 14),
+        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "right",
+        axis.line = element_line(color = "black"))
+
+# Algae stacked bars
+(algae_stack <- ggplot(data = algae_stat,
+                         aes(x = MPA, y = mean*100, fill = Taxa)) + 
+  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
+  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
+  facet_grid(Site ~ Depth_category) +
+  scale_fill_manual(values = c("#B8128C", "#FF7F00", "#228B22")) +
+  theme(strip.background = element_rect(fill="grey"), 
+        strip.text.x     = element_text(size = 14, color = "black"),
+        strip.text.y     = element_text(size=14, color = "black"),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
+        axis.text.y      = element_text(color = "black", size = 14),
+        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "right",
+        axis.line = element_line(color = "black")))
+```
+
+# Density from ESA
+## Data wrangling
+```{r}
+benthos_codes <- benthos_codes_raw %>% 
+  select(Code, Taxa, Group) %>% 
+  relocate(Taxa, .before = Code)
+
+benthos_meta <- benthos_meta_raw %>% 
+  select(Season, Site, MPA, Depth_category, `Transect (a/b/c)`, Transect_code, `Transect length (m)`) %>% 
+  relocate(Transect_code, .before = "Season")
+
+benthos_data1 <- benthos_data_raw %>% 
+  drop_na("Transect_code" | "Taxa") %>% 
+  mutate(`Individual diameter (m)` = `Individual diameter (cm)`/100)
+```
+
+## Calculation of densities based on ESA (Writen by Jonathan Belmaker)
+```{r}
+#install.packages("sp")
+#install.packages("rgeos")
+library(sp)
+library(rgeos)
+##################################################################################
+# Calculates the unbiased density for each sampling units (e.g., coral colony) based on the coordinates of the sampling points
+#
+# Arguments: (input)
+# Coor  - a data frame with the X and Y coordinates of the sampling points within a quadrat OR 
+# a vetor of locations on the X axis only for the linear point intercept method 
+
+
+# Diameters - a vector containing the diameters of the sampled individuals
+# quadsegs - number of line segments to use to approximate a quarter circle (from gBUffer in rgeos). Can be reduced to increase speed or increased for increased accuracy.
+#
+# Value:  a vector of the estimated density of each sampling unit. 1/ESA -  effective sampled area (ESA).
+#Note - NA values are  stripped from Coor, locations of NA within Diameters are returned as NA   
+
+# Jonathan Belmaker
+# 18 March 2019
+##################################################################################
+
+Density <- function(Coor, Diameters , quadsegs=10) {
+  
+  Coor=data.frame(Coor)
+  
+  DiametersNA=is.na(Diameters) # finds NAs 
+  Diameters[DiametersNA] = 1 #  replcaes NA with 1, just so the function can run  
+  
+  DiametersZero=(Diameters==0) # finds zeros 
+  Diameters[DiametersZero] = 1 #  replcaes zeros with 1, just so the function can run
+  
+ 
+  if (dim(Coor)[2]==1 ) {#adding the second axis for the linear point intercept method   
+    Coor= cbind(Coor, rep(0, length(Coor)))  
+  }  
+  
+  Coor =Coor[complete.cases(Coor),]  #makign sure to remove NA values 
+  
+  colnames(Coor)=c("X","Y")
+  
+  Radii=Diameters/2
+  
+  Sampling_Locations<-SpatialPointsDataFrame(Coor, Coor ) #make spatial point data frame
+  
+  Buffers=lapply(1:length(Radii), function(n)   gBuffer(Sampling_Locations, width=Radii[n], quadsegs=quadsegs ))#apply buffer
+  
+  ESA=sapply(1:length(Radii), function(n) gArea(Buffers[[n]])) #calculate area
+  
+  Density=(1/ESA)
+  
+  Density[DiametersNA]=NA # puts back NA values  
+  Density[DiametersZero]=NA # puts back NA values 
+  
+  return(Density)
+  
+}
+
+
+###This is were the code for this specific data starts 
+
+###change the nxt two lines to fit your directors and file name 
+#setwd("C:/Users/Lenovo/Desktop/Work/IMPA's/Abundance surveys/Results") 
+Data = benthos_data1
+#Data=Data[,-c(2,27)]
+diameterVector = (Data$`Individual diameter (m)` < 0.01)
+Data$`Individual diameter (m)`[diameterVector] = 0.01
+
+DensityVector = sapply(1:nrow(Data), function(n) Density(Coor = seq(0, by = Data$`Points intervals (m)`[n], length.out = Data$`# of points per transect`[n]), Diameters=Data$`Individual diameter (m)`[n] ) )#apply function for all rows 
+ 
+Data$Density =DensityVector
+
+#write.csv ( Data,file="1.calculated_Density_fall_2019.csv" )
+```
+
+```{r}
+
+
+
+
+
+
+  
   select(Transect_code, Taxa) %>% 
   group_by(Transect_code, Taxa) %>% 
   dplyr::summarise(n()) %>% 
@@ -88,71 +292,4 @@ invert_stat <- filter(p.cover_stat, Group == "Invertebrates")
 algae_stat <- filter(p.cover_stat, Group == "Algae")
 ```
 
-```{r}
-
-# Define the number of colors (Taxons) for the stacked plot
-nb.cols <- 12
-mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
-
-# Stacked bars
-(p.cover_stack <- ggplot(data = p.cover_stat,
-                         aes(x = MPA, y = mean*100, fill = Group)) + 
-  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
-  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
-  facet_grid(~Site) +
-  scale_fill_manual(values = c("#1D800E", "#0605E7", "#b58e62"))) +
-  theme(strip.background = element_rect(fill="grey"), 
-        strip.text.x     = element_text(size = 14, color = "black"),
-        strip.text.y     = element_text(size=14, color = "black"),
-        panel.background = element_rect(fill = "white", color = "black"),
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
-        axis.text.y      = element_text(color = "black", size = 14),
-        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
-        axis.title.x = element_blank(),
-        legend.position = "right",
-        axis.line = element_line(color = "black"))
-
-
-# Invertebrates stacked bars
-(algae_stack <- ggplot(data = invert_stat,
-                         aes(x = MPA, y = mean*100, fill = Taxa)) + 
-  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
-  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
-  facet_grid(~Site) +
-  scale_fill_manual(values = mycolors)) +
-  theme(strip.background = element_rect(fill="grey"), 
-        strip.text.x     = element_text(size = 14, color = "black"),
-        strip.text.y     = element_text(size=14, color = "black"),
-        panel.background = element_rect(fill = "white", color = "black"),
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
-        axis.text.y      = element_text(color = "black", size = 14),
-        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
-        axis.title.x = element_blank(),
-        legend.position = "right",
-        axis.line = element_line(color = "black"))
-
-# Algae stacked bars
-(algae_stack <- ggplot(data = algae_stat,
-                         aes(x = MPA, y = mean*100, fill = Taxa)) + 
-  geom_bar(position = "stack", stat = "identity", width = 0.7)  +
-  labs(x = NULL, y = "Relative cover of species", fill = NULL) +
-  facet_grid(~Site) +
-  scale_fill_manual(values = c("#B8128C", "#FF7F00", "#228B22")) +
-  theme(strip.background = element_rect(fill="grey"), 
-        strip.text.x     = element_text(size = 14, color = "black"),
-        strip.text.y     = element_text(size=14, color = "black"),
-        panel.background = element_rect(fill = "white", color = "black"),
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        axis.text.x      = element_text(color = "black", size = 14, hjust = 1),
-        axis.text.y      = element_text(color = "black", size = 14),
-        axis.title.y     = element_text(size = 16, hjust = .5, vjust = 1),
-        axis.title.x = element_blank(),
-        legend.position = "right",
-        axis.line = element_line(color = "black")))
-```
 
